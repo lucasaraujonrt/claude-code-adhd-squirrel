@@ -22,13 +22,14 @@ export type Analysis = {
 }
 
 // A held dump moves queued → reading → asking → writing → ready; failed keeps the original to send as is.
+// `id` tells dumps apart: a newer message replaces the slot, and a step still working on an older one writes nothing.
 export type Dump =
   | { stage: 'none' }
-  | { stage: 'queued' | 'reading'; original: string; words: number }
-  | { stage: 'asking'; original: string; words: number; analysis: Analysis }
-  | { stage: 'writing'; original: string; words: number; analysis: Analysis; answers: string[] }
-  | { stage: 'ready'; original: string; words: number; analysis: Analysis; rewrite: Rewrite; text: string }
-  | { stage: 'failed'; original: string; words: number; reason: string }
+  | { stage: 'queued' | 'reading'; id: number; original: string; words: number }
+  | { stage: 'asking'; id: number; original: string; words: number; analysis: Analysis }
+  | { stage: 'writing'; id: number; original: string; words: number; analysis: Analysis; answers: string[] }
+  | { stage: 'ready'; id: number; original: string; words: number; analysis: Analysis; rewrite: Rewrite; text: string }
+  | { stage: 'failed'; id: number; original: string; words: number; reason: string }
 
 declare module 'claude-code' {
   interface PluginState {

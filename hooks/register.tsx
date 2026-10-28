@@ -146,17 +146,33 @@ async function showStatus($: EngineInterface) {
   $.ui.status(parts.filter(Boolean).join(' · '))
 }
 
-async function fail($: EngineInterface, d: { original: string; words: number }, reason: string) {
-  await update($, dump, (): Dump => ({ stage: 'failed', original: d.original, words: d.words, reason }))
+// Random, not a counter: a counter starts over on reload and could match a dump still in the slot.
+function nextId(): number {
+  return Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)
 }
 
-// The worker's two steps, run from a timer so the model calls outlive the prompt hook that held the dump.
+async function isCurrent($: EngineInterface, id: number) {
+  const d = await read($, dump)
+  return d.stage !== 'none' && d.id === id
+}
+
+// Writes the slot only while it still holds dump `id`: a step that outlived its dump (a newer message replaced it) changes nothing.
+async function settle($: EngineInterface, id: number, value: Dump) {
+  await update($, dump, (v): Dump => (v.stage !== 'none' && v.id === id ? value : v))
+}
+
+async function fail($: EngineInterface, d: { id: number; original: string; words: number }, reason: string) {
+  await settle($, d.id, { stage: 'failed', id: d.id, original: d.original, words: d.words, reason })
+}
+
+// One dump end to end, run from a timer so the model calls and the questions outlive the prompt hook that held it.
 async function readDump($: EngineInterface, model: string) {
   const d = await read($, dump)
   if (d.stage !== 'queued') return
-  await update($, dump, (): Dump => ({ stage: 'reading', original: d.original, words: d.words }))
+  await settle($, d.id, { stage: 'reading', id: d.id, original: d.original, words: d.words })
   const current = await read($, focus)
   const reply = await $.model.complete({ model, system: READ_SYSTEM, prompt: readPrompt(d.original, current, await read($, nuts)), maxTokens: 1500 })
+  if (!(await isCurrent($, d.id))) return
   if (!reply.isAnswered) return fail($, d, reply.reason)
   const json = parseJson(reply.text)
   if (!json) return fail($, d, 'unreadable reply')
@@ -182,14 +198,16 @@ async function readDump($: EngineInterface, model: string) {
   await parkNuts($, analysis.sideQuests, goal)
   await showStatus($)
 
-  await update($, dump, (): Dump => ({ stage: 'asking', original: d.original, words: d.words, analysis }))
-  const answers = await askAll($, analysis, d.original)
-  if (!answers) return
-  await update($, dump, (): Dump => ({ stage: 'writing', original: d.original, words: d.words, analysis, answers }))
+  await settle($, d.id, { stage: 'asking', id: d.id, original: d.original, words: d.words, analysis })
+  const answers = await askAll($, analysis, d.id, d.original)
+  if (!answers || !(await isCurrent($, d.id))) return
+  const writing = { stage: 'writing', id: d.id, original: d.original, words: d.words, analysis, answers } as const
+  await settle($, d.id, writing)
+  await composeRewrite($, model, writing)
 }
 
 // One question at a time in the engine's own question dialog, as Claude asks; null when the dump ended here.
-async function askAll($: EngineInterface, analysis: Analysis, original: string): Promise<string[] | null> {
+async function askAll($: EngineInterface, analysis: Analysis, id: number, original: string): Promise<string[] | null> {
   const answers: string[] = []
   for (const [i, q] of analysis.questions.entries()) {
     let value: string
@@ -199,15 +217,17 @@ async function askAll($: EngineInterface, analysis: Analysis, original: string):
         header: `${analysis.isPortuguese ? 'Dúvida' : 'Question'} ${i + 1}/${analysis.questions.length}`,
       })
     } catch {
-      // Dismissed: nothing is lost, the dump goes back to the box as typed.
-      await update($, dump, (): Dump => ({ stage: 'none' }))
+      // Dismissed: nothing is lost, the dump goes back to the box as typed (unless a newer message took its place).
+      if (!(await isCurrent($, id))) return null
+      await settle($, id, { stage: 'none' })
       await $.prompt.fill({ text: original, mode: 'replace' })
       return null
     }
+    if (!(await isCurrent($, id))) return null
     // Parking the new topic ends the dump: it becomes a nut and the current focus stays.
     if (q.isSwitch && value === q.options[1]) {
       await parkNuts($, [analysis.focus], (await read($, focus))?.goal ?? '')
-      await update($, dump, (): Dump => ({ stage: 'none' }))
+      await settle($, id, { stage: 'none' })
       await showStatus($)
       $.ui.toast(analysis.isPortuguese ? '🐿️ Guardado como noz.' : '🐿️ Parked as a nut.')
       return null
@@ -221,22 +241,10 @@ async function askAll($: EngineInterface, analysis: Analysis, original: string):
   return answers
 }
 
-// The timer ticks while a write still waits on the model; this keeps a second write from starting.
-let isWriting = false
-
-async function writeDump($: EngineInterface, model: string) {
-  const d = await read($, dump)
-  if (d.stage !== 'writing' || isWriting) return
-  isWriting = true
-  try {
-    await composeRewrite($, model, d)
-  } finally {
-    isWriting = false
-  }
-}
-
 async function composeRewrite($: EngineInterface, model: string, d: Extract<Dump, { stage: 'writing' }>) {
   const reply = await $.model.complete({ model, system: WRITE_SYSTEM, prompt: writePrompt(d.original, d.analysis, d.answers), maxTokens: 2000 })
+  // A newer message took the slot while this was written: it must not land in the box over that one.
+  if (!(await isCurrent($, d.id))) return
   if (!reply.isAnswered) return fail($, d, reply.reason)
   const json = parseJson(reply.text)
   if (!json) return fail($, d, 'unreadable reply')
@@ -252,12 +260,12 @@ async function composeRewrite($: EngineInterface, model: string, d: Extract<Dump
   const filled = await $.prompt.fill({ text, mode: 'replace' })
   if (filled.isFilled) {
     await update($, focus, () => ({ goal: d.analysis.focus, nextAction: rewrite.nextAction }))
-    await update($, dump, (): Dump => ({ stage: 'none' }))
+    await settle($, d.id, { stage: 'none' })
     await showStatus($)
     $.ui.toast(d.analysis.isPortuguese ? '🐿️ Prompt organizado no campo: revise e envie.' : '🐿️ Prompt organized in the box: review and send.')
     return
   }
-  await update($, dump, (): Dump => ({ stage: 'ready', original: d.original, words: d.words, analysis: d.analysis, rewrite, text }))
+  await settle($, d.id, { stage: 'ready', id: d.id, original: d.original, words: d.words, analysis: d.analysis, rewrite, text })
 }
 
 async function send($: EngineInterface, text: string) {
@@ -301,11 +309,13 @@ export const register: Register = (on, options) => {
     })
     await $.command.register({ name: 'squirrel', description: 'Show your focus and the parked side quests (nuts)' })
     await $.command.register({ name: 'dump', description: 'Restructure what follows as a brain dump: /dump <your thoughts>' })
-    $.clock.every(400, async () => {
-      const stage = (await read($, dump)).stage
-      if (stage === 'queued') await readDump($, model)
-      else if (stage === 'writing') await writeDump($, model)
-    })
+    // A reload drops the timer that was working on a dump; its state stays, so start that dump over.
+    await update($, dump, (v): Dump =>
+      v.stage === 'reading' || v.stage === 'asking' || v.stage === 'writing'
+        ? { stage: 'queued', id: v.id, original: v.original, words: v.words }
+        : v,
+    )
+    $.clock.every(400, () => readDump($, model))
     await showStatus($)
 
     return ran
@@ -319,7 +329,7 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'dump' }, async ($, e) => {
     const text = e.args.trim()
     if (!text) return { text: 'Use: /dump <your thoughts>' }
-    await update($, dump, (): Dump => ({ stage: 'queued', original: text, words: wordCount(text) }))
+    await update($, dump, (): Dump => ({ stage: 'queued', id: nextId(), original: text, words: wordCount(text) }))
     return { text: '🐿️ Organizing your dump above the prompt…' }
   })
 
@@ -333,7 +343,7 @@ export const register: Register = (on, options) => {
     const words = wordCount(e.text)
     const isDump = mode === 'always' ? words >= MIN_WORDS : mode === 'auto' && isBrainDump(e.text)
     if (isDump) {
-      await update($, dump, (): Dump => ({ stage: 'queued', original: e.text, words }))
+      await update($, dump, (): Dump => ({ stage: 'queued', id: nextId(), original: e.text, words }))
       return { drop: `🐿️ Brain dump, ${words} words: organizing it above the prompt before sending` }
     }
     if (current && mode !== 'off') {

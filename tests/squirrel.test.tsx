@@ -76,6 +76,28 @@ function world(on: On) {
   return { clock, store, sent, asked, filled, questions, dismiss: () => (isDismissed = true) }
 }
 
+test('a newer message while a question is open: only its rewrite reaches the box', async ($, on) => {
+  const NEWER = 'esquece o relatório, agora quero revisar o contrato do cliente novo antes da reunião de amanhã cedo'
+  let isFirst = true
+  // While the first dump's question is on screen, the person sends another dump.
+  on('tool.call', { tool: 'AskUserQuestion' }, async (_, e, next) => {
+    if (isFirst) {
+      isFirst = false
+      await $.prompt.submit({ text: NEWER })
+    }
+    return next(e)
+  })
+  const { clock, filled, questions } = world(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.prompt.submit({ text: DUMP })
+  for (let i = 0; i < 5; i++) await clock.advance(400)
+
+  expect(questions).toHaveLength(2)
+  expect(filled).toHaveLength(1)
+  expect(filled[0]).toContain('**PRÓXIMA AÇÃO:**')
+})
+
 test('a dump is held, asks what clashes, and puts the rewrite in the prompt box', async ($, on) => {
   const { clock, store, sent, asked, filled, questions } = world(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
