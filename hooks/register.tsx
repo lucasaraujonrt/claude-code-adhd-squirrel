@@ -215,14 +215,17 @@ async function composeRewrite($: EngineInterface, model: string, d: Extract<Dump
     guardrails: strings(json.guardrails, 6),
     done: strings(json.done, 5),
   }
-  await update($, dump, (): Dump => ({
-    stage: 'ready',
-    original: d.original,
-    words: d.words,
-    analysis: d.analysis,
-    rewrite,
-    text: promptText(rewrite, d.analysis.isPortuguese),
-  }))
+  const text = promptText(rewrite, d.analysis.isPortuguese)
+  // The rewrite lands in the prompt box for the person to read, tweak and send; the card is the fallback where no box takes it.
+  const filled = await $.prompt.fill({ text, mode: 'replace' })
+  if (filled.isFilled) {
+    await update($, focus, () => ({ goal: d.analysis.focus, nextAction: rewrite.nextAction }))
+    await update($, dump, (): Dump => ({ stage: 'none' }))
+    await showStatus($)
+    $.ui.toast(d.analysis.isPortuguese ? '🐿️ Prompt organizado no campo: revise e envie.' : '🐿️ Prompt organized in the box: review and send.')
+    return
+  }
+  await update($, dump, (): Dump => ({ stage: 'ready', original: d.original, words: d.words, analysis: d.analysis, rewrite, text }))
 }
 
 async function answer($: EngineInterface, value: string) {
@@ -316,6 +319,8 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     // Only what the person typed is held: a plugin's prompt (the confirmed rewrite included) goes through.
     if (e.command || e.isMeta || e.origin?.kind === 'plugin') return next(e)
+    // A rewrite Squirrel put in the box (edited or not) is already organized.
+    if (/^\*\*(PRÓXIMA AÇÃO|NEXT ACTION):\*\*/.test(e.text.trim())) return next(e)
     const current = await read($, focus)
 
     const words = wordCount(e.text)

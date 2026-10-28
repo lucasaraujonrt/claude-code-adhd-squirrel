@@ -6,8 +6,8 @@ You dictate a messy brain dump. Squirrel holds it before it reaches Claude (`Pro
 
 1. **Asks what clashes**: at most 3 short questions, one at a time (`Dúvida 1 de 2`), with numbered buttons and **Outro** to type your own answer. Only for two asks that clash, a goal with two readings, or a detail Claude can't look up. Usually none.
 2. **Catches topic switches**: when the dump is about something other than your current focus, the first question is whether to switch (parking the current focus) or park the new idea.
-3. **Shows the rewrite**: the next action, then **The job**, **The why**, **The guardrails** and **Done means**, in the language you spoke. Nothing invented, every name and number kept.
-4. **Waits for you**: **Enviar** (send) sends the rewrite as your message, **Editar antes** puts it in the prompt to tweak, **Enviar o original** sends what you said as is, **Descartar** drops it.
+3. **Puts the rewrite in your prompt box**: the next action, then **The job**, **The why**, **The guardrails** and **Done means**, in the language you spoke. Nothing invented, every name and number kept.
+4. **Waits for you**: read it, tweak it, press Enter. A rewrite sent from the box is never held again. While it works, **Enviar o original** sends what you said as is and **Descartar** drops it.
 5. **Parks the tangents as nuts**: ideas that are not about the goal go to a list that survives across sessions, shown under the rewrite.
 
 Run `/squirrel` to open the pane: the focus now, its next action, and the parked nuts, each with **Trazer pro foco** (bring to focus: parks the current focus and starts on the nut) and **Feito ✓** (done). The status line shows the focus and how many nuts are parked. The UI labels follow the dump's language for the card and are in Portuguese in the pane.

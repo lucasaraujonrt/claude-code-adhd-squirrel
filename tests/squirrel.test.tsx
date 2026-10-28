@@ -33,6 +33,11 @@ function world(on: On) {
   const store = new Map<string, unknown>()
   const sent: { text: string; context: readonly string[] }[] = []
   const asked: string[] = []
+  const filled: string[] = []
+  on('prompt.fill', (_, e) => {
+    filled.push(e.text)
+    return { isFilled: true } as never
+  })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: { command: 'x' } }))
   on('tool.register', () => ({ value: {} }) as never)
@@ -58,11 +63,11 @@ function world(on: On) {
     return { text: e.text }
   })
 
-  return { clock, store, sent, asked }
+  return { clock, store, sent, asked, filled }
 }
 
-test('a dump is held, asks what clashes, and sends the rewrite on Enviar', async ($, on) => {
-  const { clock, store, sent, asked } = world(on)
+test('a dump is held, asks what clashes, and puts the rewrite in the prompt box', async ($, on) => {
+  const { clock, store, sent, asked, filled } = world(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   const held = await $.prompt.submit({ text: DUMP })
@@ -78,14 +83,13 @@ test('a dump is held, asks what clashes, and sends the rewrite on Enviar', async
   await band.press({ key: 'squirrel-option-0' } as never)
   await clock.advance(400)
   expect(asked.at(-1)).toContain('Outubro')
-  expect((await band.find({ type: 'Text', text: /O TRABALHO/ }))?.text).toBe(' O TRABALHO ')
-  expect((await band.find({ type: 'Text', text: /Não mexer/ }))?.text).toBe('- Não mexer no botão agora')
+  expect(filled.at(-1)).toContain('**PRÓXIMA AÇÃO:** Abrir o relatório de outubro')
+  expect(filled.at(-1)).toContain('- Não mexer no botão agora')
+  expect(await band.find({ type: 'Text', text: /Qual relatório/ })).toBeUndefined()
 
-  await band.press({ key: 'squirrel-send' } as never)
-  await clock.settle()
+  // Sending the rewrite from the box goes through, not held a second time.
+  await $.prompt.submit({ text: filled.at(-1) ?? '' })
   expect(sent).toHaveLength(1)
-  expect(sent[0]?.text).toContain('**PRÓXIMA AÇÃO:** Abrir o relatório de outubro')
-  expect(await band.find({ type: 'Text', text: /O TRABALHO/ })).toBeUndefined()
   await band.unmount()
 })
 
