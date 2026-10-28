@@ -1,17 +1,7 @@
 {
   "name": "squirrel",
-  "version": "0.2.0",
-  "description": "ADHD brain dumps into clear prompts: holds what you dictate, asks only what clashes, shows the rewrite to send, and parks the tangents as nuts for later.",
+  "version": "0.3.0",
+  "description": "ADHD focus keeper: your messages go straight to Claude, which keeps one focus, opens with the next action, and parks the tangents as nuts for later.",
   "types": "./types/index.d.ts",
-  "license": "MIT",
-  "repository": "https://github.com/lucasaraujonrt/claude-code-adhd-squirrel",
-  "userConfig": {
-    "mode": {
-      "type": "string",
-      "title": "When to hold a message",
-      "description": "always: every message of 8 words or more; auto: long or dictated-sounding messages; off: only /dump.",
-      "options": ["always", "auto", "off"],
-      "default": "always"
-    }
-  }
+  "license": "MIT"
 }
