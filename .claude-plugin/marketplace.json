@@ -1,0 +1,5 @@
+{
+  "name": "claude-code-adhd-squirrel",
+  "owner": { "name": "lucasaraujonrt" },
+  "plugins": [{ "name": "squirrel", "source": "./" }]
+}
