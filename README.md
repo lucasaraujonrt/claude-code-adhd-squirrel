@@ -2,26 +2,27 @@
 
 A Claude Code mod for people with ADHD who talk to Claude instead of typing, lose the thread mid-thought, or switch topics every few minutes.
 
-You dictate a messy brain dump. Squirrel has Claude:
+You dictate a messy brain dump. Squirrel holds it before it reaches Claude (`Prompt dropped by hook: 🐿️ Brain dump, 404 words`) and, above the prompt:
 
-1. **Restructure it** in a fixed shape: the next action first, then the goal, at most 5 tasks, and the side quests.
-2. **Ask only what blocks it**: at most 3 short questions with buttons, never what Claude can decide or look up.
-3. **Keep one focus**: when a new message drifts to another topic, Claude asks first whether to switch (parking the current focus) or park the new idea.
-4. **Park the tangents as nuts**: every side quest goes to a list that survives across sessions, so nothing is lost and nothing derails the work now.
+1. **Asks what clashes**: at most 3 short questions, one at a time (`Dúvida 1 de 2`), with numbered buttons and **Outro** to type your own answer. Only for two asks that clash, a goal with two readings, or a detail Claude can't look up. Usually none.
+2. **Catches topic switches**: when the dump is about something other than your current focus, the first question is whether to switch (parking the current focus) or park the new idea.
+3. **Shows the rewrite**: the next action, then **The job**, **The why**, **The guardrails** and **Done means**, in the language you spoke. Nothing invented, every name and number kept.
+4. **Waits for you**: **Enviar** (send) sends the rewrite as your message, **Editar antes** puts it in the prompt to tweak, **Enviar o original** sends what you said as is, **Descartar** drops it.
+5. **Parks the tangents as nuts**: ideas that are not about the goal go to a list that survives across sessions, shown under the rewrite.
 
-Run `/squirrel` to open the pane: the focus now, its next action, and the parked nuts, each with **Trazer pro foco** (bring to focus: parks the current focus and starts on the nut) and **Feito ✓** (done). The pane's labels are in Portuguese for now. The status line shows the focus and how many nuts are parked.
+Run `/squirrel` to open the pane: the focus now, its next action, and the parked nuts, each with **Trazer pro foco** (bring to focus: parks the current focus and starts on the nut) and **Feito ✓** (done). The status line shows the focus and how many nuts are parked. The UI labels follow the dump's language for the card and are in Portuguese in the pane.
 
 ## When it kicks in
 
-- **auto** (default): long messages, messages full of fillers (`like`, `so`, `you know`, `tipo`, `né`, `então`…), or long run-on messages with no punctuation, as dictation tends to be.
-- **always**: every message.
+- **always** (default): every message of 8 words or more. Shorter replies (`ok`, `pode mandar`) go straight through, with a reminder of the current focus.
+- **auto**: long messages, messages full of fillers (`like`, `so`, `you know`, `tipo`, `né`, `então`…), or long run-on messages with no punctuation, as dictation tends to be.
 - **off**: only when you type `/dump <your thoughts>`.
 
-`/dump <your thoughts>` restructures any message on demand, in any mode.
+Slash commands and prompts other plugins send are never held.
 
 ## How it works
 
-Squirrel holds no model of its own and adds no wait to your message. It attaches instructions beside your message, so the Claude you are talking to does the restructuring in the same turn, and gives Claude two tools: `capture` (set the focus, park side quests) and `crack` (remove done ones). The nuts are kept in the mod's own store.
+The prompt hook drops the message and queues it; a timer started with the session reads it with Sonnet (`$.model.complete`), once to find the focus, side quests and questions, and once more, after your answers, to write the request. Each call is a small, separate request, not your main conversation. Claude also gets two tools: `capture` (set the focus, park side quests) and `crack` (remove done ones). The nuts are kept in the mod's own store.
 
 ## Install
 

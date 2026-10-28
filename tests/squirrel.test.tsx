@@ -1,78 +1,108 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
+import type { On } from 'claude-code/testing'
 
-const PANE = {
+const BAND = {
   plugin: 'squirrel',
-  component: 'Pane',
-  requestId: 'squirrel',
-  props: {
-    title: 'Squirrel',
-    isFocused: false,
-    bodyColumns: 50,
-    placement: 'dock',
-    scroll: { offset: 0, bodyRows: 30 },
-    view: {},
-  },
+  component: 'AbovePrompt',
+  props: { hasSurvey: false, isWorking: false, maxRows: 40, bodyColumns: 80 },
 } as const
 
 const DUMP =
-  'então tipo eu queria ver aquele negócio do relatório né e aí também pensei que seria legal mudar a cor do botão e sei lá talvez escrever um post sobre isso também enfim acho que o principal é o relatório'
+  'então tipo eu queria ver aquele negócio do relatório né e aí também pensei que seria legal mudar a cor do botão e sei lá talvez escrever um post sobre isso também mas não sei se o relatório é o de outubro ou o do trimestre enfim acho que o principal é o relatório'
 
-test('a dump gets the instructions, capture parks nuts, a short message gets the focus reminder', async ($, on) => {
-  const seen: string[][] = []
+const READ_REPLY = {
+  language: 'pt-BR',
+  focus: 'Revisar o relatório',
+  is_new_topic: false,
+  side_quests: ['Mudar a cor do botão', 'Escrever um post sobre o relatório'],
+  questions: [
+    { title: 'Qual relatório?', detail: '"o de outubro ou o do trimestre"', options: ['Outubro', 'Trimestre'] },
+  ],
+}
+
+const WRITE_REPLY = {
+  next_action: 'Abrir o relatório de outubro',
+  job: ['Revisar o relatório de outubro', 'Conferir os números de vendas'],
+  why: 'É o principal agora.',
+  guardrails: ['Não mexer no botão agora'],
+  done: ['Resumo de 3 linhas no chat'],
+}
+
+function world(on: On) {
+  const clock = mock.clock(on)
+  const store = new Map<string, unknown>()
+  const sent: { text: string; context: readonly string[] }[] = []
+  const asked: string[] = []
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('command.register', () => ({ value: { command: 'x' } }))
   on('tool.register', () => ({ value: {} }) as never)
-  on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('clock.now', () => ({ value: 1_000 }))
-  const store = new Map<string, unknown>()
+  on('ui.status', () => ({ value: undefined }) as never)
+  on('ui.toast', () => ({ value: undefined }) as never)
+  // The engine draws nothing of its own above the prompt here.
+  on('ui.render', ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box />
+  })
   on('store.get', (_, e) => ({ value: store.get((e as { key: string }).key) }) as never)
   on('store.set', (_, e) => {
     store.set((e as { key: string }).key, (e as { value: unknown }).value)
     return { value: undefined } as never
   })
-  on('ui.status', () => ({ value: undefined }) as never)
+  on('model.complete', (_, e) => {
+    asked.push(e.prompt)
+    const reply = e.system?.startsWith('You read') ? READ_REPLY : WRITE_REPLY
+    return { value: { isAnswered: true, text: `Aqui:\n${JSON.stringify(reply)}`, usage: { input_tokens: 1, output_tokens: 1 } } } as never
+  })
   on('prompt.submit', (_, e) => {
-    seen.push([...(e.context ?? [])])
+    sent.push({ text: e.text, context: e.context ?? [] })
     return { text: e.text }
   })
 
+  return { clock, store, sent, asked }
+}
+
+test('a dump is held, asks what clashes, and sends the rewrite on Enviar', async ($, on) => {
+  const { clock, store, sent, asked } = world(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
-  await $.prompt.submit({ text: DUMP })
-  expect(seen.at(-1)?.[0]).toContain('[Squirrel] The user dictated this')
+  const held = await $.prompt.submit({ text: DUMP })
+  expect(held).toEqual({ drop: expect.stringContaining('Brain dump') })
+  expect(sent).toHaveLength(0)
 
-  await $.tool.call({
-    tool: 'mcp__squirrel__capture',
-    focus: 'Revisar o relatório',
-    next_action: 'Abrir o relatório de outubro',
-    side_quests: ['Mudar a cor do botão', 'Escrever um post sobre o relatório'],
-  } as never)
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await clock.advance(400)
+  expect((await band.find({ type: 'Text', text: /Qual relatório/ }))?.text).toBe('🐿️ Qual relatório?')
+  expect((await band.find({ type: 'Text', text: /Dúvida/ }))?.text).toBe('Dúvida 1 de 1')
+  expect(store.get('nuts')).toHaveLength(2)
 
-  await $.prompt.submit({ text: 'ok, abre ele' })
-  expect(seen.at(-1)?.[0]).toContain('Current focus: Revisar o relatório')
+  await band.press({ key: 'squirrel-option-0' } as never)
+  await clock.advance(400)
+  expect(asked.at(-1)).toContain('Outubro')
+  expect((await band.find({ type: 'Text', text: /O TRABALHO/ }))?.text).toBe(' O TRABALHO ')
+  expect((await band.find({ type: 'Text', text: /Não mexer/ }))?.text).toBe('- Não mexer no botão agora')
 
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const pane = await $.ui.mount({ ...PANE, surface })
-    expect((await pane.find({ type: 'Text', text: /Revisar o relatório/ }))?.text).toBe('Revisar o relatório')
-    expect((await pane.find({ type: 'Text', text: /NOZES GUARDADAS/ }))?.text).toBe('NOZES GUARDADAS · 2')
-    expect((await pane.find({ type: 'Text', text: /cor do botão/ }))?.text).toBe('🌰 Mudar a cor do botão')
-    await pane.unmount()
-  }
+  await band.press({ key: 'squirrel-send' } as never)
+  await clock.settle()
+  expect(sent).toHaveLength(1)
+  expect(sent[0]?.text).toContain('**PRÓXIMA AÇÃO:** Abrir o relatório de outubro')
+  expect(await band.find({ type: 'Text', text: /O TRABALHO/ })).toBeUndefined()
+  await band.unmount()
 })
 
-test('a short plain message with no focus passes untouched', async ($, on) => {
-  const seen: (readonly string[] | undefined)[] = []
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('command.register', () => ({ value: { command: 'x' } }))
-  on('tool.register', () => ({ value: {} }) as never)
-  on('store.get', () => ({ value: undefined }) as never)
-  on('ui.status', () => ({ value: undefined }) as never)
-  on('prompt.submit', (_, e) => {
-    seen.push(e.context)
-    return { text: e.text }
-  })
+test('a short reply goes through, and in terminal the band still asks', async ($, on) => {
+  const { clock, sent } = world(on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.prompt.submit({ text: 'roda os testes' })
-  expect(seen.at(-1)).toBeUndefined()
+  expect(sent).toHaveLength(1)
+  expect(sent[0]?.context).toEqual([])
+
+  await $.prompt.submit({ text: DUMP })
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await clock.advance(400)
+  expect((await band.find({ type: 'Text', text: /Qual relatório/ }))?.text).toBe('🐿️ Qual relatório?')
+  await band.press({ key: 'squirrel-original' } as never)
+  await clock.settle()
+  expect(sent.at(-1)?.text).toBe(DUMP)
+  await band.unmount()
 })

@@ -1,17 +1,17 @@
 {
   "name": "squirrel",
-  "version": "0.1.0",
-  "description": "ADHD brain dumps into clear prompts: restructures what you dictate, asks only what blocks, keeps you on one topic and parks the tangents as nuts for later.",
+  "version": "0.2.0",
+  "description": "ADHD brain dumps into clear prompts: holds what you dictate, asks only what clashes, shows the rewrite to send, and parks the tangents as nuts for later.",
   "types": "./types/index.d.ts",
   "license": "MIT",
   "repository": "https://github.com/lucasaraujonrt/claude-code-adhd-squirrel",
   "userConfig": {
     "mode": {
       "type": "string",
-      "title": "When to restructure",
-      "description": "auto: long or dictated-sounding messages; always: every message; off: only /dump.",
-      "options": ["auto", "always", "off"],
-      "default": "auto"
+      "title": "When to hold a message",
+      "description": "always: every message of 8 words or more; auto: long or dictated-sounding messages; off: only /dump.",
+      "options": ["always", "auto", "off"],
+      "default": "always"
     }
   }
 }
