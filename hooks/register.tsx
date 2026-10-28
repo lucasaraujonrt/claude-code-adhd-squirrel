@@ -182,11 +182,43 @@ async function readDump($: EngineInterface, model: string) {
   await parkNuts($, analysis.sideQuests, goal)
   await showStatus($)
 
-  if (analysis.questions.length > 0) {
-    await update($, dump, (): Dump => ({ stage: 'asking', original: d.original, words: d.words, analysis, answers: [], isTyping: false }))
-  } else {
-    await update($, dump, (): Dump => ({ stage: 'writing', original: d.original, words: d.words, analysis, answers: [] }))
+  await update($, dump, (): Dump => ({ stage: 'asking', original: d.original, words: d.words, analysis }))
+  const answers = await askAll($, analysis, d.original)
+  if (!answers) return
+  await update($, dump, (): Dump => ({ stage: 'writing', original: d.original, words: d.words, analysis, answers }))
+}
+
+// One question at a time in the engine's own question dialog, as Claude asks; null when the dump ended here.
+async function askAll($: EngineInterface, analysis: Analysis, original: string): Promise<string[] | null> {
+  const answers: string[] = []
+  for (const [i, q] of analysis.questions.entries()) {
+    let value: string
+    try {
+      value = await $.ui.ask(q.detail ? `${q.detail}\n${q.title}` : q.title, {
+        options: q.options,
+        header: `${analysis.isPortuguese ? 'Dúvida' : 'Question'} ${i + 1}/${analysis.questions.length}`,
+      })
+    } catch {
+      // Dismissed: nothing is lost, the dump goes back to the box as typed.
+      await update($, dump, (): Dump => ({ stage: 'none' }))
+      await $.prompt.fill({ text: original, mode: 'replace' })
+      return null
+    }
+    // Parking the new topic ends the dump: it becomes a nut and the current focus stays.
+    if (q.isSwitch && value === q.options[1]) {
+      await parkNuts($, [analysis.focus], (await read($, focus))?.goal ?? '')
+      await update($, dump, (): Dump => ({ stage: 'none' }))
+      await showStatus($)
+      $.ui.toast(analysis.isPortuguese ? '🐿️ Guardado como noz.' : '🐿️ Parked as a nut.')
+      return null
+    }
+    if (q.isSwitch && value === q.options[0]) {
+      const old = await read($, focus)
+      if (old) await parkNuts($, [old.goal], analysis.focus)
+    }
+    answers.push(value)
   }
+  return answers
 }
 
 // The timer ticks while a write still waits on the model; this keeps a second write from starting.
@@ -226,31 +258,6 @@ async function composeRewrite($: EngineInterface, model: string, d: Extract<Dump
     return
   }
   await update($, dump, (): Dump => ({ stage: 'ready', original: d.original, words: d.words, analysis: d.analysis, rewrite, text }))
-}
-
-async function answer($: EngineInterface, value: string) {
-  const d = await read($, dump)
-  if (d.stage !== 'asking') return
-  const index = d.answers.length
-  const question = d.analysis.questions[index]
-  // Parking the new topic ends the dump: it becomes a nut and the current focus stays.
-  if (question?.isSwitch && value === question.options[1]) {
-    await parkNuts($, [d.analysis.focus], (await read($, focus))?.goal ?? '')
-    await update($, dump, (): Dump => ({ stage: 'none' }))
-    await showStatus($)
-    $.ui.toast(d.analysis.isPortuguese ? '🐿️ Guardado como noz.' : '🐿️ Parked as a nut.')
-    return
-  }
-  if (question?.isSwitch && value === question.options[0]) {
-    const old = await read($, focus)
-    if (old) await parkNuts($, [old.goal], d.analysis.focus)
-  }
-  const answers = [...d.answers, value]
-  if (answers.length >= d.analysis.questions.length) {
-    await update($, dump, (): Dump => ({ stage: 'writing', original: d.original, words: d.words, analysis: d.analysis, answers }))
-  } else {
-    await update($, dump, (): Dump => ({ ...d, answers, isTyping: false }))
-  }
 }
 
 async function send($: EngineInterface, text: string) {
@@ -362,10 +369,7 @@ export const register: Register = (on, options) => {
     const d = await read($, dump)
     if (d.stage === 'none' || e.props.hasSurvey) return next(e)
 
-    const elements = $.ui.resolve(e)
-    const { Box, Text, Button } = elements
-    // A surface without text input offers only the buttons.
-    const Input = 'Input' in elements ? elements.Input : undefined
+    const { Box, Text, Button } = $.ui.resolve(e)
     const pt = 'analysis' in d ? d.analysis.isPortuguese : /[ãõçáéíóú]|\b(é|né|tipo|então|você)\b/i.test(d.original)
     const original = (
       <Button key="squirrel-original" plain dimColor label={pt ? 'Enviar o original' : 'Send the original'} onPress={() => send($, d.original)} />
@@ -388,37 +392,8 @@ export const register: Register = (on, options) => {
         </Box>
       )
     } else if (d.stage === 'asking') {
-      const index = d.answers.length
-      const q = d.analysis.questions[index]
-      if (!q) return below
-      card = (
-        <Box flexDirection="column" gap={1} paddingX={1} borderStyle="round" borderDimColor>
-          <Box flexDirection="row" justifyContent="space-between">
-            <Text bold>{`🐿️ ${q.title}`}</Text>
-            <Text dimColor>{`${pt ? 'Dúvida' : 'Question'} ${index + 1} ${pt ? 'de' : 'of'} ${d.analysis.questions.length}`}</Text>
-          </Box>
-          {q.detail ? <Text dimColor>{q.detail}</Text> : null}
-          {q.options.map((option, i) => (
-            <Button key={`squirrel-option-${i}`} hotkey={String(i + 1)} label={option} onPress={() => answer($, option)} />
-          ))}
-          {!Input ? null : d.isTyping ? (
-            <Input
-              key="squirrel-other"
-              placeholder={pt ? 'Sua resposta' : 'Your answer'}
-              autoFocus
-              onSubmit={value => {
-                if (value.trim()) void answer($, value.trim())
-              }}
-            />
-          ) : (
-            <Button key="squirrel-other-open" hotkey={String(q.options.length + 1)} label={pt ? 'Outro' : 'Other'} onPress={() => update($, dump, v => (v.stage === 'asking' ? { ...v, isTyping: true } : v))} />
-          )}
-          <Box flexDirection="row" gap={2}>
-            {original}
-            {cancel}
-          </Box>
-        </Box>
-      )
+      // The engine's question dialog asks; the band stays out of its way.
+      return below
     } else if (d.stage === 'ready') {
       const l = labels(pt)
       const section = (title: string, lines: string[]) =>

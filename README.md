@@ -4,7 +4,7 @@ A Claude Code mod for people with ADHD who talk to Claude instead of typing, los
 
 You dictate a messy brain dump. Squirrel holds it before it reaches Claude (`Prompt dropped by hook: 🐿️ Brain dump, 404 words`) and, above the prompt:
 
-1. **Asks what clashes**: at most 3 short questions, one at a time (`Dúvida 1 de 2`), with numbered buttons and **Outro** to type your own answer. Only for two asks that clash, a goal with two readings, or a detail Claude can't look up. Usually none.
+1. **Asks what clashes**: at most 3 short questions, one at a time, in Claude Code's own question dialog (`Dúvida 1/2`), with option buttons and Other to type your own answer. Only for two asks that clash, a goal with two readings, or a detail Claude can't look up. Usually none. Dismiss the dialog and your dump goes back to the box as you typed it.
 2. **Catches topic switches**: when the dump is about something other than your current focus, the first question is whether to switch (parking the current focus) or park the new idea.
 3. **Puts the rewrite in your prompt box**: the next action, then **The job**, **The why**, **The guardrails** and **Done means**, in the language you spoke. Nothing invented, every name and number kept.
 4. **Waits for you**: read it, tweak it, press Enter. A rewrite sent from the box is never held again. While it works, **Enviar o original** sends what you said as is and **Descartar** drops it.

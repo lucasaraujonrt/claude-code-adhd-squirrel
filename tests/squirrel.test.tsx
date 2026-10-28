@@ -63,50 +63,52 @@ function world(on: On) {
     return { text: e.text }
   })
 
-  return { clock, store, sent, asked, filled }
+  // The engine's question dialog: answers with the first option, or is dismissed.
+  const questions: { question: string; header: string }[] = []
+  let isDismissed = false
+  on('tool.call', { tool: 'AskUserQuestion' }, (_, e) => {
+    const q = e.questions[0]
+    if (q) questions.push({ question: q.question, header: q.header })
+    if (isDismissed) return { deny: 'dismissed' } as never
+    return { result: { ...e, answers: { [q?.question ?? '']: q?.options[0]?.label ?? '' } } } as never
+  })
+
+  return { clock, store, sent, asked, filled, questions, dismiss: () => (isDismissed = true) }
 }
 
 test('a dump is held, asks what clashes, and puts the rewrite in the prompt box', async ($, on) => {
-  const { clock, store, sent, asked, filled } = world(on)
+  const { clock, store, sent, asked, filled, questions } = world(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   const held = await $.prompt.submit({ text: DUMP })
   expect(held).toEqual({ drop: expect.stringContaining('Brain dump') })
   expect(sent).toHaveLength(0)
 
-  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
   await clock.advance(400)
-  expect((await band.find({ type: 'Text', text: /Qual relatório/ }))?.text).toBe('🐿️ Qual relatório?')
-  expect((await band.find({ type: 'Text', text: /Dúvida/ }))?.text).toBe('Dúvida 1 de 1')
+  await clock.advance(400)
+  expect(questions).toEqual([{ question: '"o de outubro ou o do trimestre"\nQual relatório?', header: 'Dúvida 1/1' }])
   expect(store.get('nuts')).toHaveLength(2)
-
-  await band.press({ key: 'squirrel-option-0' } as never)
-  await clock.advance(400)
   expect(asked.at(-1)).toContain('Outubro')
   expect(filled.at(-1)).toContain('**PRÓXIMA AÇÃO:** Abrir o relatório de outubro')
   expect(filled.at(-1)).toContain('- Não mexer no botão agora')
-  expect(await band.find({ type: 'Text', text: /Qual relatório/ })).toBeUndefined()
 
   // Sending the rewrite from the box goes through, not held a second time.
   await $.prompt.submit({ text: filled.at(-1) ?? '' })
   expect(sent).toHaveLength(1)
-  await band.unmount()
 })
 
-test('a short reply goes through, and in terminal the band still asks', async ($, on) => {
-  const { clock, sent } = world(on)
+test('a short reply goes through; a dismissed question puts the dump back in the box', async ($, on) => {
+  const { clock, sent, filled, dismiss } = world(on)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   await $.prompt.submit({ text: 'roda os testes' })
   expect(sent).toHaveLength(1)
   expect(sent[0]?.context).toEqual([])
 
+  dismiss()
   await $.prompt.submit({ text: DUMP })
-  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   await clock.advance(400)
-  expect((await band.find({ type: 'Text', text: /Qual relatório/ }))?.text).toBe('🐿️ Qual relatório?')
-  await band.press({ key: 'squirrel-original' } as never)
-  await clock.settle()
-  expect(sent.at(-1)?.text).toBe(DUMP)
-  await band.unmount()
+  await clock.advance(400)
+  expect(filled).toEqual([DUMP])
+  expect(sent).toHaveLength(1)
 })

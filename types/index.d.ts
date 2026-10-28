@@ -25,7 +25,7 @@ export type Analysis = {
 export type Dump =
   | { stage: 'none' }
   | { stage: 'queued' | 'reading'; original: string; words: number }
-  | { stage: 'asking'; original: string; words: number; analysis: Analysis; answers: string[]; isTyping: boolean }
+  | { stage: 'asking'; original: string; words: number; analysis: Analysis }
   | { stage: 'writing'; original: string; words: number; analysis: Analysis; answers: string[] }
   | { stage: 'ready'; original: string; words: number; analysis: Analysis; rewrite: Rewrite; text: string }
   | { stage: 'failed'; original: string; words: number; reason: string }
